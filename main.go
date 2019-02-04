@@ -31,7 +31,9 @@ func main() {
 			Action: func(c *cli.Context) {
 				text := Task{Content: c.Args().First(), Time: time.Now()}
 
-				AddTask(text, "tasks_data")
+				if err := AddTask(text, "tasks_data"); err != nil {
+					log.Fatal(err)
+				}
 			},
 		},
 		{
@@ -45,7 +47,7 @@ func main() {
 					fmt.Println("You shoudld write integer")
 				}
 
-				if CompleteTask(posOfTask) != nil {
+				if _, err := CompleteTask(posOfTask); err != nil {
 					fmt.Println(err)
 				}
 			},
@@ -55,11 +57,13 @@ func main() {
 			ShortName: "ls",
 			Usage:     "list all uncompleted tasks",
 			Action: func(c *cli.Context) {
-				err := ListTasks()
+				data, err := ListTasks()
 
 				if err != nil {
 					log.Fatal(err)
 				}
+
+				fmt.Print(data)
 			},
 		},
 		{
@@ -84,11 +88,11 @@ func main() {
 }
 
 // AddTask add task in JSON file
-func AddTask(task Task, dataFileName string) {
+func AddTask(task Task, dataFileName string) error {
 	j, err := json.Marshal(task)
 
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("problems with marshaling file")
 	}
 
 	j = append(j, "\n"...)
@@ -96,52 +100,20 @@ func AddTask(task Task, dataFileName string) {
 	file, _ := os.OpenFile(dataFileName+".json", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
 
 	if _, err := file.Write(j); err != nil {
-		log.Fatal(err)
-	}
-}
-
-// ListTasks list all uncompleted tasks from tasks_data file
-func ListTasks() error {
-	file, err := OpenAndCheckFile("tasks_data.json")
-
-	if err != nil {
-		return err
-	}
-
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-
-	idx := 1
-
-	for scanner.Scan() {
-		text := scanner.Text()
-		task := Task{}
-
-		err := json.Unmarshal([]byte(text), &task)
-
-		if err != nil {
-			return err
-		}
-
-		PrintTask(idx, task)
-
-		idx++
-	}
-
-	if idx == 1 {
-		fmt.Println("List of tasks is empty")
+		return fmt.Errorf("problems with opening file")
 	}
 
 	return nil
 }
 
-// CompleteTask completed task with posision equals posOfTask
-func CompleteTask(posOfTask int) error {
+// ListTasks list all uncompleted tasks from tasks_data file
+func ListTasks() (string, error) {
+	var result string
+
 	file, err := OpenAndCheckFile("tasks_data.json")
 
 	if err != nil {
-		return err
+		return "List of tasks is empty\n", nil
 	}
 
 	defer file.Close()
@@ -157,11 +129,50 @@ func CompleteTask(posOfTask int) error {
 		err := json.Unmarshal([]byte(text), &task)
 
 		if err != nil {
-			return fmt.Errorf("problems with unmarshaling data file")
+			return "", fmt.Errorf("problems with unmarshaling file")
+		}
+
+		result += CreateTask(idx, task)
+
+		idx++
+	}
+
+	if idx == 1 {
+		return "List of tasks is empty\n", nil
+	}
+
+	return result, nil
+}
+
+// CompleteTask completed task with posision equals posOfTask
+func CompleteTask(posOfTask int) (string, error) {
+	file, err := OpenAndCheckFile("tasks_data.json")
+
+	if err != nil {
+		return "", err
+	}
+
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+
+	idx := 1
+
+	flag := 0
+
+	for scanner.Scan() {
+		text := scanner.Text()
+		task := Task{}
+
+		err := json.Unmarshal([]byte(text), &task)
+
+		if err != nil {
+			return "", fmt.Errorf("problems with unmarshaling data file")
 		}
 
 		if idx == posOfTask {
 			idx++
+			flag = 1
 			continue
 		}
 
@@ -172,7 +183,11 @@ func CompleteTask(posOfTask int) error {
 
 	Swap("tmp.json", "tasks_data.json")
 
-	return nil
+	if flag == 0 {
+		return fmt.Sprintf("There're less than %d tasks\n", idx), nil
+	}
+
+	return "", nil
 }
 
 // OpenAndCheckFile opens file
@@ -210,10 +225,12 @@ func Swap(file1 string, file2 string) {
 	os.Remove(file1)
 }
 
-// PrintTask prints task in nice format
-func PrintTask(idx int, task Task) {
-	fmt.Printf("[%d] ", idx)
-	fmt.Printf("(%02d:%02d:%02d ", task.Time.Hour(), task.Time.Minute(), task.Time.Second())
-	fmt.Printf("%02d-%02d-%d) ", task.Time.Day(), task.Time.Month(), task.Time.Year())
-	fmt.Println(task.Content)
+// CreateTask prints task in nice format
+func CreateTask(idx int, task Task) (res string) {
+	res = fmt.Sprintf("[%d] ", idx) +
+		fmt.Sprintf("(%02d:%02d:%02d ", task.Time.Hour(), task.Time.Minute(), task.Time.Second()) +
+		fmt.Sprintf("%02d-%02d-%d) ", task.Time.Day(), task.Time.Month(), task.Time.Year()) +
+		fmt.Sprintln(task.Content)
+
+	return
 }
